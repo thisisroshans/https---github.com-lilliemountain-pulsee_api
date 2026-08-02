@@ -59,6 +59,7 @@ model User {
   workoutPreference WorkoutPreference?
   workoutSessions   WorkoutSession[]
   setLogs           SetLog[]
+  weightEntries     WeightEntry[]
 
   // Partial index: the vast majority of reads exclude soft-deleted users.
   @@index([deletedAt])
@@ -537,4 +538,38 @@ model SetLog {
   @@index([userId, exerciseId, createdAt])
   @@index([sessionId])
   @@map("set_logs")
+}
+
+// ===========================================================================
+// Progress (screen 12)
+// ===========================================================================
+
+enum WeightSource {
+  MANUAL
+  SCALE
+  IMPORT
+}
+
+/// One weigh-in per local day. A second entry for the same day replaces the
+/// first, because a trend line built from several same-day readings tells the
+/// user about their hydration rather than their progress.
+model WeightEntry {
+  id     String @id @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  weightKg   Float        @map("weight_kg")
+  recordedAt DateTime     @map("recorded_at") @db.Timestamptz(3)
+  /// The user's local calendar day, so "today's weigh-in" never depends on UTC.
+  localDate  String       @map("local_date") @db.VarChar(10)
+  source     WeightSource @default(MANUAL)
+  note       String?      @db.VarChar(280)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, localDate])
+  @@index([userId, recordedAt])
+  @@map("weight_entries")
 }
