@@ -14,19 +14,53 @@ done. This README only covers how to run things.
 
 ```bash
 pnpm install
-cp .env.example .env          # fill in secrets; defaults work for local dev
-docker compose up -d postgres redis
+cp .env.example .env          # then set DATABASE_URL, TEST_DATABASE_URL, REDIS_URL
+docker compose up -d postgres redis   # or use managed Postgres/Redis — see below
 pnpm db:migrate               # apply migrations
 pnpm db:seed                  # optional dev users
 pnpm dev                      # http://localhost:3000
 ```
 
+Check it came up: `curl -s localhost:3000/api/v1/health/ready` should report
+`"status":"ok"` with both dependencies `up`.
+
 API docs (dev only): <http://localhost:3000/docs>
 
-### Without Docker
+### Pointing the docs at a deployed API
 
-Point `DATABASE_URL` and `REDIS_URL` at your own Postgres 16 / Redis 7, then run
-`pnpm db:migrate && pnpm dev`.
+Swagger UI's "Try it out" targets whichever server is selected in its dropdown.
+Set `API_PUBLIC_URL` to add your deployed base URL alongside localhost:
+
+```bash
+API_PUBLIC_URL=https://api.pulse.fit
+```
+
+| `NODE_ENV`  | Servers listed                                |
+| ----------- | --------------------------------------------- |
+| development | `localhost:PORT` (Local), then Deployed       |
+| production  | Deployed only — localhost is never advertised |
+
+The deployed API must allow the docs origin in `CORS_ORIGINS`, or browser
+requests from Swagger UI will be blocked.
+
+`servers` is deployment metadata, not contract, so `pnpm openapi:check` ignores
+it — setting `API_PUBLIC_URL` will not fail the CI staleness check.
+
+### Without Docker (managed Postgres / Redis)
+
+Point the URLs at any Postgres 16+ and Redis 7 and run `pnpm db:migrate && pnpm dev`.
+Two gotchas with managed providers:
+
+- **Neon:** use the **direct** connection host, not the `-pooler` one — Prisma
+  migrations fail against PgBouncer. Keep `?sslmode=require`, and drop
+  `channel_binding=require` (Prisma does not parse it). Create a dedicated
+  database for `TEST_DATABASE_URL`; the suite must never share with dev.
+- **Upstash / any TLS Redis:** the URL scheme must be `rediss://` (two s's).
+  Upstash's `redis-cli --tls` snippet expresses the same thing as a flag, but
+  this codebase reads TLS from the scheme.
+
+Redis is not required to boot: rate limiting degrades to in-memory counters and
+logs a warning if it is unreachable.
 
 ---
 
@@ -52,7 +86,7 @@ Point `DATABASE_URL` and `REDIS_URL` at your own Postgres 16 / Redis 7, then run
 
 ## Layout
 
-```
+```text
 src/
   app.ts            # builds the Fastify instance (plugins, hooks, routes)
   server.ts         # boot, listen, graceful shutdown
@@ -80,7 +114,7 @@ Fastify. Cross-module calls go service-to-service.
   `BusinessRuleError`, …). The global handler in
   `shared/middleware/error-handler.ts` is the only place that formats an HTTP
   error response, and the only place that decides log level.
-- **Validation.** Zod schemas on every route, request _and_ response. Response
+- **Validation.** Zod schemas on every route, covering request and response alike. Response
   schemas are what stop internal fields leaking. Reuse the primitives in
   `shared/validation/common.ts` (`indianPhoneSchema` normalises to E.164).
 - **Auth.** `requireAuth` authenticates; `requireRole` / `requireEntitlement`

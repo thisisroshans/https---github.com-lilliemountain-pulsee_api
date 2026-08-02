@@ -15,6 +15,16 @@ import { disconnectRedis } from '../shared/cache/redis.js';
  */
 const OUTPUT_PATH = resolve(process.cwd(), 'docs/openapi.json');
 
+/**
+ * The `servers` block is deployment metadata driven by API_PUBLIC_URL, not part
+ * of the API contract. Comparing it would make the staleness check fail on any
+ * machine that targets a deployed environment, so it is excluded from the diff.
+ */
+function withoutServers(spec: string): string {
+  const { servers: _servers, ...rest } = JSON.parse(spec) as Record<string, unknown>;
+  return JSON.stringify(rest, null, 2);
+}
+
 async function main(): Promise<void> {
   const checkOnly = process.argv.includes('--check');
 
@@ -39,7 +49,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  if (committed !== spec) {
+  if (withoutServers(committed) !== withoutServers(spec)) {
     process.stderr.write(
       'docs/openapi.json is out of date with the route schemas. Run: pnpm openapi:generate\n',
     );

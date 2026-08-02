@@ -18,6 +18,13 @@ const envSchema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     CORS_ORIGINS: z.string().default('*'),
 
+    /**
+     * Publicly reachable base URL of the deployed API, e.g.
+     * https://api.pulse.fit. Listed in the OpenAPI `servers` block so Swagger
+     * UI can target a deployed environment instead of localhost.
+     */
+    API_PUBLIC_URL: z.string().url().optional(),
+
     DATABASE_URL: z.string().url(),
     TEST_DATABASE_URL: z.string().url().optional(),
 

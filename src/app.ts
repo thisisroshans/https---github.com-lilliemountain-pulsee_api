@@ -15,6 +15,7 @@ import {
 
 import { API_PREFIX, MAX_BODY_BYTES } from './config/constants.js';
 import { corsOriginList, loadEnv } from './config/env.js';
+import { buildOpenApiServers } from './config/openapi-servers.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { getRedis } from './shared/cache/redis.js';
 import { buildLoggerOptions } from './shared/logger/index.js';
@@ -84,7 +85,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         description: 'AI diet & fitness coaching API for the Pulse mobile app.',
         version: process.env.npm_package_version ?? '0.1.0',
       },
-      servers: [{ url: `http://localhost:${String(env.PORT)}`, description: 'Local' }],
+      servers: buildOpenApiServers(env),
       components: {
         securitySchemes: {
           bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
