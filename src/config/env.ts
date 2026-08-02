@@ -102,11 +102,31 @@ export type Env = z.infer<typeof envSchema>;
 
 let cached: Env | undefined;
 
+/**
+ * Treats a blank variable as absent.
+ *
+ * `.env.example` ships optional keys with empty values (`S3_BUCKET=`), and
+ * hosting dashboards happily store empty strings. Without this, `FOO=` would
+ * defeat a `.default()` and — worse — read as "set" to any `!== undefined`
+ * check. A blank FIREBASE_AUTH_EMULATOR_HOST would have silently pointed the
+ * verifier at the emulator, which does not check token signatures.
+ */
+function stripBlankValues(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = {};
+
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'string' && value.trim() === '') continue;
+    result[key] = value;
+  }
+
+  return result;
+}
+
 /** Parse and memoise process.env. Throws a readable error on misconfiguration. */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   if (cached) return cached;
 
-  const parsed = envSchema.safeParse(source);
+  const parsed = envSchema.safeParse(stripBlankValues(source));
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`)

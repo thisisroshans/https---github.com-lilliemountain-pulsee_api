@@ -67,6 +67,43 @@ describe('loadEnv', () => {
     expect(env.FIREBASE_PRIVATE_KEY).not.toContain('\\n');
   });
 
+  describe('blank values', () => {
+    it('treats a blank optional variable as unset', () => {
+      resetEnvCache();
+      // `.env.example` ships these keys empty; a blank must not read as "set".
+      const env = loadEnv({ ...validEnv, API_PUBLIC_URL: '', S3_ACCESS_KEY_ID: '   ' });
+
+      expect(env.API_PUBLIC_URL).toBeUndefined();
+      expect(env.S3_ACCESS_KEY_ID).toBeUndefined();
+    });
+
+    it('lets a blank variable fall back to its default', () => {
+      resetEnvCache();
+      const env = loadEnv({ ...validEnv, S3_REGION: '', LOG_LEVEL: '' });
+
+      expect(env.S3_REGION).toBe('ap-south-1');
+      expect(env.LOG_LEVEL).toBe('info');
+    });
+
+    it('does not treat a blank emulator host as an emulator', () => {
+      resetEnvCache();
+      // Critical: the emulator does not verify token signatures, so a stray
+      // `FIREBASE_AUTH_EMULATOR_HOST=` must never select that code path.
+      const env = loadEnv({
+        ...validEnv,
+        NODE_ENV: 'development',
+        FIREBASE_AUTH_EMULATOR_HOST: '',
+      });
+
+      expect(env.FIREBASE_AUTH_EMULATOR_HOST).toBeUndefined();
+    });
+
+    it('still rejects a blank required variable', () => {
+      resetEnvCache();
+      expect(() => loadEnv({ ...validEnv, DATABASE_URL: '' })).toThrow(/DATABASE_URL/);
+    });
+  });
+
   it('refuses a wildcard CORS allowlist in production', () => {
     resetEnvCache();
     expect(() => loadEnv({ ...validEnv, CORS_ORIGINS: '*' })).toThrow(/CORS_ORIGINS/);
