@@ -1,0 +1,12 @@
+# Normalise line endings to LF in the repository so Linux CI, the Docker image,
+# and Windows developers all see identical files.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+
+pnpm-lock.yaml linguist-generated=true
+docs/openapi.json linguist-generated=true
