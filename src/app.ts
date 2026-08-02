@@ -20,6 +20,7 @@ import type { PhoneIdentityVerifier } from './integrations/identity/phone-identi
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { onboardingRoutes } from './modules/onboarding/onboarding.routes.js';
+import { workoutRoutes } from './modules/workouts/workouts.routes.js';
 import { getRedis } from './shared/cache/redis.js';
 import { buildLoggerOptions } from './shared/logger/index.js';
 import { optionalUser } from './shared/middleware/auth.js';
@@ -108,6 +109,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           name: 'onboarding',
           description: 'Goals, body stats, health, food and training preferences (screens 2-6)',
         },
+        {
+          name: 'workouts',
+          description: 'Exercise catalog, training log, and strength progress (screen 9)',
+        },
         { name: 'health', description: 'Liveness and readiness probes' },
       ],
     },
@@ -125,6 +130,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     ...(options.identityVerifier ? { identityVerifier: options.identityVerifier } : {}),
   });
   await app.register(onboardingRoutes, { prefix: API_PREFIX });
+  await app.register(workoutRoutes, { prefix: API_PREFIX });
 
   return app;
 }

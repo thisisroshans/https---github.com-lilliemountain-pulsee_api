@@ -57,6 +57,8 @@ model User {
   dietPreference    DietPreference?
   supplements       UserSupplement[]
   workoutPreference WorkoutPreference?
+  workoutSessions   WorkoutSession[]
+  setLogs           SetLog[]
 
   // Partial index: the vast majority of reads exclude soft-deleted users.
   @@index([deletedAt])
@@ -383,4 +385,156 @@ model WorkoutPreference {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("workout_preferences")
+}
+
+// ===========================================================================
+// Workouts (screen 9)
+//
+// Two distinct things live here: the exercise *catalog* (reference data, shared
+// by everyone) and a user's *training log* (what they actually did). A session
+// may reference a planned workout, but logging never requires one — a user can
+// train off-plan and it must still count.
+// ===========================================================================
+
+enum MuscleGroup {
+  CHEST
+  BACK
+  SHOULDERS
+  BICEPS
+  TRICEPS
+  FOREARMS
+  ABS
+  OBLIQUES
+  QUADS
+  HAMSTRINGS
+  GLUTES
+  CALVES
+  LATS
+  TRAPS
+  LOWER_BACK
+  REAR_DELTS
+  FULL_BODY
+  CARDIO
+}
+
+enum ExerciseCategory {
+  PUSH
+  PULL
+  LEGS
+  CORE
+  CARDIO
+  MOBILITY
+}
+
+enum Equipment {
+  NONE
+  DUMBBELL
+  BARBELL
+  MACHINE
+  CABLE
+  KETTLEBELL
+  RESISTANCE_BAND
+  BODYWEIGHT
+  CARDIO_MACHINE
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+/// Reference data. `Restrict` on delete — a catalogued exercise that appears in
+/// someone's training history must never silently disappear.
+model Exercise {
+  id       String           @id @db.Uuid
+  slug     String           @unique @db.VarChar(64)
+  name     String           @db.VarChar(120)
+  category ExerciseCategory
+
+  primaryMuscles   MuscleGroup[] @map("primary_muscles")
+  secondaryMuscles MuscleGroup[] @map("secondary_muscles")
+  equipment        Equipment[]
+
+  /// Ordered coaching cues shown on the "How to do it" card.
+  howToSteps   String[] @map("how_to_steps")
+  /// Object-storage key for the demo clip; resolved to a URL at read time so
+  /// the storage location can change without a migration.
+  demoVideoKey String?  @map("demo_video_key") @db.VarChar(255)
+
+  /// Whether load is meaningful. Bodyweight and cardio work have no 1RM.
+  isWeighted Boolean @default(true) @map("is_weighted")
+  sortOrder  Int     @default(0) @map("sort_order")
+  isActive   Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  setLogs SetLog[]
+
+  @@index([isActive, sortOrder])
+  @@index([category])
+  @@map("exercises")
+}
+
+/// One training session. Created when the user starts a workout.
+model WorkoutSession {
+  id     String @id @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  status            SessionStatus @default(IN_PROGRESS)
+  /// Session title, e.g. "Upper body strength". Free text so an off-plan
+  /// session can be named anything.
+  title             String?       @db.VarChar(120)
+  startedAt         DateTime      @map("started_at") @db.Timestamptz(3)
+  completedAt       DateTime?     @map("completed_at") @db.Timestamptz(3)
+  /// Perceived exertion, 1-10. Recorded on completion.
+  perceivedExertion Int?          @map("perceived_exertion")
+  notes             String?       @db.VarChar(1000)
+
+  /// The user's local calendar day. Denormalised because "did they train
+  /// today?" is asked constantly and must not re-derive a timezone each time.
+  localDate String @map("local_date") @db.VarChar(10)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sets SetLog[]
+
+  @@index([userId, startedAt])
+  @@index([userId, localDate])
+  @@index([userId, status])
+  @@map("workout_sessions")
+}
+
+/// A single logged set. The grain of the training log.
+model SetLog {
+  id         String @id @db.Uuid
+  sessionId  String @map("session_id") @db.Uuid
+  exerciseId String @map("exercise_id") @db.Uuid
+  userId     String @map("user_id") @db.Uuid
+
+  /// 1-based position within the exercise, so sets keep their order.
+  setNumber       Int     @map("set_number")
+  reps            Int
+  /// Null for bodyweight or cardio work.
+  weightKg        Float?  @map("weight_kg")
+  /// Cardio and timed holds record duration instead of reps.
+  durationSeconds Int?    @map("duration_seconds")
+  isWarmup        Boolean @default(false) @map("is_warmup")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  session  WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, exerciseId, setNumber])
+  // Drives per-exercise history and the 1RM trend without touching sessions.
+  @@index([userId, exerciseId, createdAt])
+  @@index([sessionId])
+  @@map("set_logs")
 }

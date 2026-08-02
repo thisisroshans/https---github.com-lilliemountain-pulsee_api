@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { uuidv7 } from 'uuidv7';
 
+import { EXERCISE_CATALOG } from './seed-data/exercises.js';
 import { SUPPLEMENT_CATALOG } from './seed-data/supplements.js';
 
 /**
@@ -35,6 +36,18 @@ async function seedSupplementCatalog(): Promise<void> {
   console.log(`seeded ${String(SUPPLEMENT_CATALOG.length)} supplements`);
 }
 
+async function seedExerciseCatalog(): Promise<void> {
+  for (const exercise of EXERCISE_CATALOG) {
+    await prisma.exercise.upsert({
+      where: { slug: exercise.slug },
+      update: { ...exercise, isActive: true },
+      create: { id: uuidv7(), ...exercise },
+    });
+  }
+
+  console.log(`seeded ${String(EXERCISE_CATALOG.length)} exercises`);
+}
+
 async function seedDevUsers(): Promise<void> {
   for (const user of DEV_USERS) {
     const record = await prisma.user.upsert({
@@ -54,6 +67,7 @@ async function seedDevUsers(): Promise<void> {
 
 async function main(): Promise<void> {
   await seedSupplementCatalog();
+  await seedExerciseCatalog();
 
   if (process.env.NODE_ENV === 'production') {
     console.log('production: skipping sample users');
