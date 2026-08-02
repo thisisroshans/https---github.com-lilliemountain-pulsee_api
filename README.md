@@ -174,6 +174,18 @@ logic (auth, entitlements, billing, macro math, streaks) is expected at 100%.
 
 ---
 
+## Deployment
+
+The API is deployed as a container on **Railway**, connecting out to **Neon**
+(Postgres) and **Upstash** (Redis). Configuration lives in
+[`railway.toml`](railway.toml); the full checklist — required variables, secret
+rotation, and how migrations run on deploy — is in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+Neon and Upstash host the data layer only; neither can run the API process.
+
+---
+
 ## Notes on this environment
 
 - The handoff targets **Node 20 LTS**; `engines` allows `>=20`. This machine runs

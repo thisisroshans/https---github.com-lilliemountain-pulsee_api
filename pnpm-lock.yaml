@@ -65,6 +65,9 @@ importers:
       pino:
         specifier: ^9.5.0
         version: 9.14.0
+      prisma:
+        specifier: ^5.22.0
+        version: 5.22.0
       uuidv7:
         specifier: ^1.0.2
         version: 1.2.1
@@ -96,9 +99,6 @@ importers:
       prettier:
         specifier: ^3.4.2
         version: 3.9.6
-      prisma:
-        specifier: ^5.22.0
-        version: 5.22.0
       tsx:
         specifier: ^4.19.2
         version: 4.23.1
