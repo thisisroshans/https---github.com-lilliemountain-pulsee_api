@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+# A newer push makes an in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Node 20 LTS, matching the Dockerfile — local development may run newer.
+  NODE_VERSION: '20'
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+          POSTGRES_DB: pulse_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U pulse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # CI uses its own throwaway Postgres, never the managed development one.
+      DATABASE_URL: postgresql://pulse:pulse@localhost:5432/pulse_ci?schema=public
+      TEST_DATABASE_URL: postgresql://pulse:pulse@localhost:5432/pulse_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret-000000000000000000000000
+      JWT_REFRESH_PEPPER: ci-refresh-pepper-000000000000000000000000
+      CORS_ORIGINS: '*'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      # The suite refuses to run if TEST_DATABASE_URL matches DATABASE_URL, so
+      # CI creates the separate database the service container did not.
+      - name: Prepare databases
+        run: |
+          PGPASSWORD=pulse psql -h localhost -U pulse -d pulse_test -c 'CREATE DATABASE pulse_ci;'
+          pnpm exec prisma migrate deploy
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm exec prisma migrate deploy
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format
+        run: pnpm format:check
+
+      - name: Test
+        run: pnpm test
+
+      # Catches a schema edited without a matching migration — the drift would
+      # otherwise only surface on deploy.
+      - name: Check for migration drift
+        run: |
+          DRIFT=$(pnpm exec prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$DATABASE_URL" \
+            --script)
+          if [ -n "$(echo "$DRIFT" | grep -v '^--' | tr -d '[:space:]')" ]; then
+            echo "::error::schema.prisma has changes with no migration. Run: pnpm db:migrate"
+            echo "$DRIFT"
+            exit 1
+          fi
+
+      - name: Check the OpenAPI contract is current
+        run: pnpm openapi:check
+
+  build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Proves the production image still builds; Railway builds the same file.
+      - name: Build production image
+        run: docker build --target production -t pulse-api:ci .
