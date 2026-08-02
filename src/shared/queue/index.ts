@@ -17,15 +17,30 @@ export const QUEUE_NAMES = {
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
-function connection(): ConnectionOptions {
-  const url = new URL(loadEnv().REDIS_URL);
+/**
+ * BullMQ needs its own connections (it issues blocking commands), so we build
+ * options from REDIS_URL rather than sharing the cache client.
+ *
+ * `rediss://` means TLS — managed providers such as Upstash require it, and
+ * dropping the scheme here would fail to connect with a confusing error.
+ */
+export function buildRedisConnection(redisUrl: string): ConnectionOptions {
+  const url = new URL(redisUrl);
+  const isTls = url.protocol === 'rediss:';
+
   return {
     host: url.hostname,
-    port: Number(url.port || 6379),
-    ...(url.password ? { password: url.password } : {}),
+    port: Number(url.port) || (isTls ? 6380 : 6379),
+    ...(url.username ? { username: decodeURIComponent(url.username) } : {}),
+    ...(url.password ? { password: decodeURIComponent(url.password) } : {}),
+    ...(isTls ? { tls: { servername: url.hostname } } : {}),
     // BullMQ requires this to be null so blocking commands are not aborted.
     maxRetriesPerRequest: null,
   };
+}
+
+function connection(): ConnectionOptions {
+  return buildRedisConnection(loadEnv().REDIS_URL);
 }
 
 const queues = new Map<QueueName, Queue>();
