@@ -16,6 +16,8 @@ import {
 import { API_PREFIX, MAX_BODY_BYTES } from './config/constants.js';
 import { corsOriginList, loadEnv } from './config/env.js';
 import { buildOpenApiServers } from './config/openapi-servers.js';
+import type { PhoneIdentityVerifier } from './integrations/identity/phone-identity-verifier.js';
+import { authRoutes } from './modules/auth/auth.routes.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { getRedis } from './shared/cache/redis.js';
 import { buildLoggerOptions } from './shared/logger/index.js';
@@ -24,11 +26,19 @@ import { registerErrorHandler } from './shared/middleware/error-handler.js';
 import { createResilientRateLimitStore } from './shared/middleware/rate-limit-store.js';
 import { generateRequestId, requestContext } from './shared/middleware/request-context.js';
 
+export interface BuildAppOptions {
+  /**
+   * Replaces the Firebase verifier. Tests inject a fake so the suite never
+   * calls Firebase; production leaves this unset.
+   */
+  identityVerifier?: PhoneIdentityVerifier;
+}
+
 /**
  * Builds a fully configured Fastify instance. Kept separate from `server.ts`
  * so integration tests can build an app without binding a port.
  */
-export async function buildApp(): Promise<FastifyInstance> {
+export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const env = loadEnv();
 
   const app = Fastify({
@@ -91,7 +101,10 @@ export async function buildApp(): Promise<FastifyInstance> {
           bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
         },
       },
-      tags: [{ name: 'health', description: 'Liveness and readiness probes' }],
+      tags: [
+        { name: 'auth', description: 'Phone sign-in via Firebase, sessions, token rotation' },
+        { name: 'health', description: 'Liveness and readiness probes' },
+      ],
     },
     transform: jsonSchemaTransform,
   });
@@ -102,6 +115,10 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // --- Routes --------------------------------------------------------------
   await app.register(healthRoutes, { prefix: API_PREFIX });
+  await app.register(authRoutes, {
+    prefix: API_PREFIX,
+    ...(options.identityVerifier ? { identityVerifier: options.identityVerifier } : {}),
+  });
 
   return app;
 }

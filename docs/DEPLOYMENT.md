@@ -33,14 +33,23 @@ Never reuse the `dev-only-…` placeholders. Generate two distinct values:
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
-### 3. Have an SMS provider ready
+### 3. Create the Firebase service account
 
-`config/env.ts` **refuses to boot in production without `MSG91_AUTH_KEY`**. This
-is deliberate — phone OTP is the only way to authenticate, so a production
-instance that cannot send SMS cannot log anyone in.
+`config/env.ts` **refuses to boot in production** without `FIREBASE_PROJECT_ID`,
+`FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` — without them the API cannot
+verify a sign-in, so nobody could log in.
 
-If you want a smoke deploy before signing up for MSG91, say so and I'll relax
-that check to apply only once the auth routes ship.
+Firebase Console -> Project settings -> Service accounts -> _Generate new
+private key_. Copy the three values out of the downloaded JSON. Paste the private
+key on one line, keeping its `
+` escapes; the env layer expands them.
+
+Enable **Phone** as a sign-in provider under Authentication -> Sign-in method,
+and add your app's SHA-256 fingerprint (Android) / APNs key (iOS), or the SMS
+challenge will fail in the app.
+
+`FIREBASE_AUTH_EMULATOR_HOST` must be unset — env validation rejects it in
+production, because the emulator does not verify token signatures.
 
 ---
 
@@ -58,20 +67,22 @@ that check to apply only once the auth routes ship.
 
 ### Required variables
 
-| Variable             | Value                      | Notes                                                                                |
-| -------------------- | -------------------------- | ------------------------------------------------------------------------------------ |
-| `NODE_ENV`           | `production`               | Enables the strict env checks below.                                                 |
-| `DATABASE_URL`       | Neon **direct** URL        | Not the `-pooler` host — migrations fail against PgBouncer. Keep `?sslmode=require`. |
-| `REDIS_URL`          | Upstash `rediss://…`       | Two s's. TLS is read from the scheme.                                                |
-| `JWT_ACCESS_SECRET`  | 48 random bytes            | Rotating this invalidates all access tokens.                                         |
-| `JWT_REFRESH_PEPPER` | 48 random bytes, different | Rotating this invalidates all refresh tokens.                                        |
-| `CORS_ORIGINS`       | Explicit origin list       | A wildcard is **rejected** in production.                                            |
-| `MSG91_AUTH_KEY`     | From MSG91                 | Required to boot; see above.                                                         |
-| `API_PUBLIC_URL`     | Your Railway domain        | Adds it to the OpenAPI servers list.                                                 |
+| Variable                | Value                         | Notes                                                                                |
+| ----------------------- | ----------------------------- | ------------------------------------------------------------------------------------ |
+| `NODE_ENV`              | `production`                  | Enables the strict env checks below.                                                 |
+| `DATABASE_URL`          | Neon **direct** URL           | Not the `-pooler` host — migrations fail against PgBouncer. Keep `?sslmode=require`. |
+| `REDIS_URL`             | Upstash `rediss://…`          | Two s's. TLS is read from the scheme.                                                |
+| `JWT_ACCESS_SECRET`     | 48 random bytes               | Rotating this invalidates all access tokens.                                         |
+| `JWT_REFRESH_PEPPER`    | 48 random bytes, different    | Rotating this invalidates all refresh tokens.                                        |
+| `CORS_ORIGINS`          | Explicit origin list          | A wildcard is **rejected** in production.                                            |
+| `FIREBASE_PROJECT_ID`   | From the service account JSON | Required to boot.                                                                    |
+| `FIREBASE_CLIENT_EMAIL` | From the service account JSON | Required to boot.                                                                    |
+| `FIREBASE_PRIVATE_KEY`  | From the service account JSON | Required to boot. One line, keep the `                                               |
+| ` escapes.              |
+| `API_PUBLIC_URL`        | Your Railway domain           | Adds it to the OpenAPI servers list.                                                 |
 
 `PORT` is injected by Railway and read automatically — do not set it.
-`OTP_DEV_MODE` must stay `false`; env validation rejects `true` in production
-because it returns OTP codes in API responses.
+`FIREBASE_AUTH_EMULATOR_HOST` must stay unset in production.
 
 ### What deploys do
 

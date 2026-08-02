@@ -35,16 +35,23 @@ const envSchema = z
     ACCESS_TOKEN_TTL: z.string().min(2).default('15m'),
     REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(60),
 
-    OTP_TTL_SECONDS: z.coerce.number().int().min(60).max(900).default(300),
-    OTP_MAX_VERIFY_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(5),
-    OTP_DEV_MODE: z
-      .enum(['true', 'false'])
-      .default('false')
-      .transform((v) => v === 'true'),
-
-    MSG91_AUTH_KEY: z.string().optional(),
-    MSG91_SENDER_ID: z.string().optional(),
-    MSG91_TEMPLATE_ID: z.string().optional(),
+    /**
+     * Firebase service account. Phone verification happens client-side via the
+     * Firebase SDK; the backend only verifies the resulting ID token, so these
+     * are the credentials for the Admin SDK rather than for sending SMS.
+     */
+    FIREBASE_PROJECT_ID: z.string().min(1).optional(),
+    FIREBASE_CLIENT_EMAIL: z.string().email().optional(),
+    /**
+     * PEM private key. Env files and dashboards cannot hold real newlines, so
+     * an escaped "\n" sequence is accepted and expanded back into the PEM.
+     */
+    FIREBASE_PRIVATE_KEY: z
+      .string()
+      .optional()
+      .transform((key) => key?.replace(/\\n/g, '\n')),
+    /** host:port of the Firebase Auth emulator. Local development only. */
+    FIREBASE_AUTH_EMULATOR_HOST: z.string().optional(),
 
     LLM_API_KEY: z.string().optional(),
     LLM_MODEL: z.string().default('claude-sonnet-5'),
@@ -65,11 +72,12 @@ const envSchema = z
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
 
-    if (env.OTP_DEV_MODE) {
+    if (env.FIREBASE_AUTH_EMULATOR_HOST) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['OTP_DEV_MODE'],
-        message: 'OTP_DEV_MODE must be false in production — it leaks OTP codes to clients.',
+        path: ['FIREBASE_AUTH_EMULATOR_HOST'],
+        message:
+          'FIREBASE_AUTH_EMULATOR_HOST must not be set in production — the emulator accepts forged tokens.',
       });
     }
     if (env.CORS_ORIGINS.trim() === '*') {
@@ -79,12 +87,14 @@ const envSchema = z
         message: 'CORS_ORIGINS must be an explicit allowlist in production.',
       });
     }
-    if (!env.MSG91_AUTH_KEY) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['MSG91_AUTH_KEY'],
-        message: 'MSG91_AUTH_KEY is required in production to deliver OTPs.',
-      });
+    for (const key of ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'] as const) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required in production to verify Firebase ID tokens.`,
+        });
+      }
     }
   });
 

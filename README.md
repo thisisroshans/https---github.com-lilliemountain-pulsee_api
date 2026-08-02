@@ -174,6 +174,21 @@ logic (auth, entitlements, billing, macro math, streaks) is expected at 100%.
 
 ---
 
+## Authentication
+
+Phone sign-in only, via **Firebase Phone Auth**. Verification happens
+client-side: the app gets a Firebase ID token and exchanges it at
+`POST /api/v1/auth/firebase` for Pulse's own access and refresh tokens. The API
+never sees the SMS code, and there is no server-side OTP endpoint.
+
+See [`docs/AUTHENTICATION.md`](docs/AUTHENTICATION.md) for the full flow, the
+token model, reuse detection, and how to develop without sending real SMS.
+
+Firebase credentials are not needed to run the API locally — the client is built
+lazily, so only `/auth/firebase` requires them.
+
+---
+
 ## Deployment
 
 The API is deployed as a container on **Railway**, connecting out to **Neon**

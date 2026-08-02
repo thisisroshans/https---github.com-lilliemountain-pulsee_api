@@ -19,10 +19,17 @@ export const FREE_TIER_DAILY_COACH_MESSAGES = 20;
 export const TRIAL_DURATION_DAYS = 7;
 
 // --- Auth -------------------------------------------------------------------
-export const OTP_CODE_LENGTH = 6;
-/** Max OTP *requests* per phone within the window below. */
-export const OTP_REQUESTS_PER_PHONE = 5;
-export const OTP_REQUEST_WINDOW_SECONDS = 15 * 60;
+/**
+ * Phone verification is performed client-side by Firebase; the API only
+ * exchanges a verified Firebase ID token for a Pulse session. Firebase enforces
+ * its own SMS quotas, so these limits exist to protect *our* endpoint from
+ * token-replay and enumeration attempts rather than to cap SMS spend.
+ */
+export const AUTH_EXCHANGE_RATE_LIMIT = { max: 10, timeWindow: '1 minute' } as const;
+export const AUTH_REFRESH_RATE_LIMIT = { max: 30, timeWindow: '1 minute' } as const;
+
+/** Length of the random secret inside a refresh token, in bytes. */
+export const REFRESH_TOKEN_SECRET_BYTES = 32;
 
 // --- Uploads ----------------------------------------------------------------
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
