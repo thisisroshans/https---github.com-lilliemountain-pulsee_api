@@ -1,0 +1,97 @@
+// Pulse — database schema.
+// Conventions (see docs/BACKEND_HANDOFF.md §5):
+//   • tables plural snake_case, columns snake_case (mapped to camelCase in TS)
+//   • UUID v7 primary keys generated app-side (time-sortable, safe to expose)
+//   • every table carries created_at / updated_at; timestamps stored in UTC
+//   • user-owned content that may need recovery uses deleted_at (soft delete)
+//
+// This scaffold models the auth + identity core. Feature domains (plans, meals,
+// food logs, coach, progress, subscriptions) are added by their own slices.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPPORT
+}
+
+enum Entitlement {
+  FREE
+  PREMIUM
+}
+
+model User {
+  id              String      @id @db.Uuid
+  phone           String      @unique @db.VarChar(16)
+  phoneVerifiedAt DateTime?   @map("phone_verified_at") @db.Timestamptz(3)
+  displayName     String?     @map("display_name") @db.VarChar(80)
+  timezone        String      @default("Asia/Kolkata") @db.VarChar(64)
+  locale          String      @default("en-IN") @db.VarChar(10)
+  roles           UserRole[]  @default([USER])
+  entitlement     Entitlement @default(FREE)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  // Partial index: the vast majority of reads exclude soft-deleted users.
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("users")
+}
+
+/// Opaque refresh tokens. Only the argon2 hash is stored. Rotated on every use;
+/// reuse of a revoked token revokes the whole family (theft response).
+model RefreshToken {
+  id        String @id @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+  tokenHash String @map("token_hash") @db.VarChar(255)
+  familyId  String @map("family_id") @db.Uuid
+
+  deviceId  String?   @map("device_id") @db.VarChar(128)
+  userAgent String?   @map("user_agent") @db.VarChar(512)
+  ip        String?   @db.VarChar(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+/// Append-only record of security- and money-relevant events. Never updated,
+/// never deleted; actor may be null for system-initiated actions.
+model AuditLog {
+  id           String  @id @db.Uuid
+  actorUserId  String? @map("actor_user_id") @db.Uuid
+  action       String  @db.VarChar(64)
+  entity       String  @db.VarChar(64)
+  entityId     String? @map("entity_id") @db.VarChar(64)
+  metadata     Json?
+  ip           String? @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([entity, entityId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}

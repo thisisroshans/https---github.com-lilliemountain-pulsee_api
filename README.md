@@ -1,0 +1,148 @@
+# Pulse API
+
+Backend for **Pulse** — an AI diet & fitness coaching app for the Indian market.
+Fastify + TypeScript (strict) + PostgreSQL/Prisma + Redis, built as a layered
+modular monolith.
+
+**Read [`docs/BACKEND_HANDOFF.md`](docs/BACKEND_HANDOFF.md) before writing code.**
+It is the source of truth for architecture, conventions, and the definition of
+done. This README only covers how to run things.
+
+---
+
+## Quick start
+
+```bash
+pnpm install
+cp .env.example .env          # fill in secrets; defaults work for local dev
+docker compose up -d postgres redis
+pnpm db:migrate               # apply migrations
+pnpm db:seed                  # optional dev users
+pnpm dev                      # http://localhost:3000
+```
+
+API docs (dev only): <http://localhost:3000/docs>
+
+### Without Docker
+
+Point `DATABASE_URL` and `REDIS_URL` at your own Postgres 16 / Redis 7, then run
+`pnpm db:migrate && pnpm dev`.
+
+---
+
+## Commands
+
+| Command                             | What it does                                       |
+| ----------------------------------- | -------------------------------------------------- |
+| `pnpm dev`                          | Run with hot reload (tsx watch).                   |
+| `pnpm build` / `pnpm start`         | Compile to `dist/` and run the compiled server.    |
+| `pnpm typecheck`                    | `tsc --noEmit`, strict.                            |
+| `pnpm lint` / `pnpm lint:fix`       | ESLint (typescript-eslint, type-aware).            |
+| `pnpm format` / `pnpm format:check` | Prettier.                                          |
+| `pnpm test` / `pnpm test:watch`     | Vitest unit + integration.                         |
+| `pnpm test:coverage`                | Coverage report (thresholds enforced).             |
+| `pnpm db:migrate`                   | Create + apply a migration in development.         |
+| `pnpm db:deploy`                    | Apply migrations in CI/production.                 |
+| `pnpm db:seed`                      | Deterministic, idempotent dev seed.                |
+| `pnpm db:studio`                    | Prisma Studio.                                     |
+| `pnpm openapi:generate`             | Regenerate `docs/openapi.json` from route schemas. |
+| `pnpm openapi:check`                | Fail if the committed spec is stale (CI gate).     |
+
+---
+
+## Layout
+
+```
+src/
+  app.ts            # builds the Fastify instance (plugins, hooks, routes)
+  server.ts         # boot, listen, graceful shutdown
+  config/           # Zod-validated env + non-secret constants
+  modules/<domain>/ # routes → controller → service → repository → schema
+  shared/           # errors, http envelope, validation, logger, db, cache, queue, middleware
+  integrations/     # external providers behind interfaces (SMS, LLM, vision, storage, payments)
+  jobs/             # BullMQ processors
+prisma/             # schema.prisma, migrations, seed
+test/               # unit/, integration/, fixtures/, helpers/
+```
+
+Dependencies point inward and downward: `route → controller → service →
+repository`. A controller never imports a repository; a service never imports
+Fastify. Cross-module calls go service-to-service.
+
+---
+
+## Conventions worth knowing up front
+
+- **Response envelopes.** Success is `{ success: true, data, meta? }`, errors are
+  `{ success: false, error: { code, message, details?, requestId } }`. Build them
+  with the helpers in `shared/http/envelope.ts` — never hand-roll one.
+- **Errors.** Services throw typed `AppError`s (`NotFoundError`,
+  `BusinessRuleError`, …). The global handler in
+  `shared/middleware/error-handler.ts` is the only place that formats an HTTP
+  error response, and the only place that decides log level.
+- **Validation.** Zod schemas on every route, request _and_ response. Response
+  schemas are what stop internal fields leaking. Reuse the primitives in
+  `shared/validation/common.ts` (`indianPhoneSchema` normalises to E.164).
+- **Auth.** `requireAuth` authenticates; `requireRole` / `requireEntitlement`
+  authorize. Resource **ownership** is enforced in services via `assertOwned` —
+  guards cannot do it, because only the service knows what an id refers to.
+- **Time.** All timestamps stored UTC; "today", meal times, and streaks are
+  computed in the user's timezone (default `Asia/Kolkata`).
+- **Expensive AI calls** (plan generation, food-photo vision) go through BullMQ,
+  never inline on the request path.
+- **Logging.** Structured Pino only, never `console.log`. Redaction of phones,
+  tokens, cookies, and OTP codes is configured in `shared/logger` — don't defeat it.
+
+---
+
+## Health endpoints
+
+| Endpoint                   | Purpose                                                            |
+| -------------------------- | ------------------------------------------------------------------ |
+| `GET /api/v1/health/live`  | Liveness. 200 whenever the process runs; touches no dependencies.  |
+| `GET /api/v1/health/ready` | Readiness. Probes Postgres and Redis; **503** when either is down. |
+
+```bash
+curl -s localhost:3000/api/v1/health/ready
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "ok",
+    "uptimeSeconds": 14,
+    "version": "0.1.0",
+    "dependencies": {
+      "database": { "status": "up", "latencyMs": 3 },
+      "redis": { "status": "up", "latencyMs": 1 }
+    }
+  }
+}
+```
+
+Both are exempt from rate limiting and unauthenticated — probes call them constantly.
+
+---
+
+## Testing
+
+- **Unit** (`test/unit/`) — services and pure logic, all dependencies mocked.
+- **Integration** (`test/integration/`) — real HTTP through the built app via
+  `app.inject()`, against a real test database.
+
+`test/helpers/setup-env.ts` pins a hermetic test environment, so the suite never
+reads a developer's `.env`. Integration tests use `TEST_DATABASE_URL` — point it
+at a throwaway database (`docker compose up` creates `pulse_test` for you).
+
+Coverage floors: 80% lines/functions/statements, 75% branches. Business-critical
+logic (auth, entitlements, billing, macro math, streaks) is expected at 100%.
+
+---
+
+## Notes on this environment
+
+- The handoff targets **Node 20 LTS**; `engines` allows `>=20`. This machine runs
+  Node 24 and the suite passes there, but CI and the Docker image should pin 20.
+- `docs/openapi.json` is generated. Never edit it by hand — run
+  `pnpm openapi:generate` and commit the result. CI runs `pnpm openapi:check`.
