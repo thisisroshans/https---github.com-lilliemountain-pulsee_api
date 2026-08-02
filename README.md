@@ -189,6 +189,36 @@ lazily, so only `/auth/firebase` requires them.
 
 ---
 
+## Onboarding
+
+Screens 2–6, one `PUT` per screen. Each write replaces that screen's whole slice
+of state and returns the **complete** onboarding state, including recomputed
+calorie and macro targets — saving body stats changes the targets, and saving a
+supplement stack changes how much protein must come from food.
+
+| Method | Path                          | Screen                      |
+| ------ | ----------------------------- | --------------------------- |
+| GET    | `/api/v1/onboarding`          | resume state + live targets |
+| PUT    | `/api/v1/onboarding/goals`    | 2                           |
+| PUT    | `/api/v1/onboarding/profile`  | 3                           |
+| PUT    | `/api/v1/onboarding/health`   | 4 (skippable)               |
+| PUT    | `/api/v1/onboarding/diet`     | 5, incl. supplement stack   |
+| PUT    | `/api/v1/onboarding/workout`  | 6                           |
+| POST   | `/api/v1/onboarding/complete` | finish                      |
+| GET    | `/api/v1/supplements`         | catalog for screen 5        |
+
+Use `progress` from any response to resume where the user left off; `canComplete`
+tells you whether the finish button should be enabled.
+
+Measurements are accepted in the user's own units and stored canonically in
+cm/kg, with the chosen unit recorded so screen 3 repopulates exactly as they left
+it. Targets come from `modules/nutrition` (Mifflin-St Jeor), which plan
+generation will reuse so the number promised is the number delivered. It refuses
+to program an unsafe rate of loss or drop intake below BMR, returning a
+`warning` alongside the adjusted targets instead.
+
+---
+
 ## Deployment
 
 The API is deployed as a container on **Railway**, connecting out to **Neon**

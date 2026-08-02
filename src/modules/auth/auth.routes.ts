@@ -99,11 +99,12 @@ export async function authRoutes(app: FastifyInstance, options: AuthRouteOptions
   app.get(
     '/auth/me',
     {
-      // Fastify awaits a two-argument async preHandler; the rule fires only
-      // because its type also permits a callback form. Do NOT "fix" this by
-      // wrapping in `void` — the guard would stop blocking the request.
+      // onRequest so authentication precedes schema validation; see the note in
+      // onboarding.routes.ts. Fastify awaits a two-argument async hook — the
+      // lint rule fires only because the type also permits a callback form. Do
+      // NOT "fix" it by wrapping in `void`, which would stop the guard blocking.
       // eslint-disable-next-line @typescript-eslint/no-misused-promises
-      preHandler: requireAuth,
+      onRequest: requireAuth,
       schema: {
         tags: ['auth'],
         summary: 'Current user',

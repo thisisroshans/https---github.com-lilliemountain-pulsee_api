@@ -45,8 +45,18 @@ model User {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
 
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
+  /// Set when the user finishes screen 6. Drives whether the app resumes
+  /// onboarding or goes straight to Home.
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz(3)
+
+  refreshTokens     RefreshToken[]
+  auditLogs         AuditLog[]
+  profile           Profile?
+  goals             UserGoal[]
+  healthProfile     HealthProfile?
+  dietPreference    DietPreference?
+  supplements       UserSupplement[]
+  workoutPreference WorkoutPreference?
 
   // Partial index: the vast majority of reads exclude soft-deleted users.
   @@index([deletedAt])
@@ -85,13 +95,13 @@ model RefreshToken {
 /// Append-only record of security- and money-relevant events. Never updated,
 /// never deleted; actor may be null for system-initiated actions.
 model AuditLog {
-  id           String  @id @db.Uuid
-  actorUserId  String? @map("actor_user_id") @db.Uuid
-  action       String  @db.VarChar(64)
-  entity       String  @db.VarChar(64)
-  entityId     String? @map("entity_id") @db.VarChar(64)
-  metadata     Json?
-  ip           String? @db.VarChar(64)
+  id          String  @id @db.Uuid
+  actorUserId String? @map("actor_user_id") @db.Uuid
+  action      String  @db.VarChar(64)
+  entity      String  @db.VarChar(64)
+  entityId    String? @map("entity_id") @db.VarChar(64)
+  metadata    Json?
+  ip          String? @db.VarChar(64)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
@@ -101,4 +111,276 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+// ===========================================================================
+// Onboarding (screens 2-6)
+//
+// Everything the user tells us before a plan can be generated. Measurements are
+// stored canonically (kg, cm) with the unit they entered kept alongside, so the
+// app can echo values back in the units they chose without us storing two
+// sources of truth.
+// ===========================================================================
+
+enum GoalType {
+  LOSE_WEIGHT
+  BUILD_MUSCLE
+  GET_TONED
+  LOSE_BELLY_FAT
+  STAMINA_ENERGY
+  MANAGE_CONDITION
+}
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ActivityLevel {
+  SEDENTARY
+  LIGHT
+  MODERATE
+  VERY_ACTIVE
+}
+
+enum TargetDeadline {
+  ONE_MONTH
+  TWO_MONTHS
+  THREE_MONTHS
+  SIX_MONTHS
+  ONE_YEAR
+}
+
+enum HeightUnit {
+  CM
+  FT_IN
+}
+
+enum WeightUnit {
+  KG
+  LB
+}
+
+enum HealthCondition {
+  PCOS
+  DIABETES_TYPE_2
+  PRE_DIABETES
+  HYPERTENSION
+  THYROID
+  HIGH_CHOLESTEROL
+  IBS_DIGESTIVE
+}
+
+enum Allergen {
+  LACTOSE
+  GLUTEN
+  NUTS
+  EGGS
+  SHELLFISH
+  SOY
+}
+
+enum DietType {
+  VEGETARIAN
+  EGGETARIAN
+  NON_VEGETARIAN
+  VEGAN
+  JAIN
+}
+
+enum BudgetTier {
+  LOW
+  MID
+  HIGH
+}
+
+enum CookingResponsibility {
+  SELF
+  HOUSEHOLD
+  ORDER_IN
+  MIXED
+}
+
+enum Weekday {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+enum WorkoutLocation {
+  HOME_NO_EQUIPMENT
+  HOME_BASIC_EQUIPMENT
+  GYM
+  YOGA_PILATES
+  OUTDOOR
+}
+
+enum PreferredTime {
+  EARLY_MORNING
+  MORNING
+  LUNCH
+  EVENING
+  NIGHT
+}
+
+enum ExperienceLevel {
+  BEGINNER
+  SOME
+  ADVANCED
+}
+
+enum SupplementKind {
+  PROTEIN
+  OTHER
+}
+
+/// Screen 3. One row per user; body stats drive every calorie and macro target.
+model Profile {
+  userId String @id @map("user_id") @db.Uuid
+
+  sex      Sex
+  /// Age in whole years as entered. Stored rather than derived because the app
+  /// asks for age, not a birth date; `updatedAt` records when it was true.
+  ageYears Int @map("age_years")
+
+  heightCm       Float          @map("height_cm")
+  weightKg       Float          @map("weight_kg")
+  targetWeightKg Float          @map("target_weight_kg")
+  targetDeadline TargetDeadline @map("target_deadline")
+  activityLevel  ActivityLevel  @map("activity_level")
+
+  /// Units the user entered in. Display only — never used for calculation.
+  heightUnit HeightUnit @default(CM) @map("height_unit")
+  weightUnit WeightUnit @default(KG) @map("weight_unit")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+/// Screen 2. Multi-select, so one row per chosen goal.
+model UserGoal {
+  id     String   @id @db.Uuid
+  userId String   @map("user_id") @db.Uuid
+  type   GoalType
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@map("user_goals")
+}
+
+/// Screen 4. Sensitive: never returned to anyone but the owner.
+model HealthProfile {
+  userId String @id @map("user_id") @db.Uuid
+
+  conditions  HealthCondition[]
+  allergies   Allergen[]
+  /// Free text, e.g. "Metformin, Thyronorm 50mcg". Length-capped at the schema.
+  medications String?           @db.VarChar(500)
+
+  tracksCycle       Boolean @default(false) @map("tracks_cycle")
+  pregnantOrNursing Boolean @default(false) @map("pregnant_or_nursing")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("health_profiles")
+}
+
+/// Screen 5, excluding supplements (see UserSupplement).
+model DietPreference {
+  userId String @id @map("user_id") @db.Uuid
+
+  dietType   DietType   @map("diet_type")
+  cuisines   String[]
+  dislikes   String[]
+  budgetTier BudgetTier @map("budget_tier")
+
+  cookedBy       CookingResponsibility @map("cooked_by")
+  cookingMinutes Int                   @map("cooking_minutes")
+  /// Days the user eats pure veg. Only meaningful for non-veg and eggetarian.
+  vegOnlyDays    Weekday[]             @map("veg_only_days")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("diet_preferences")
+}
+
+/// Reference data. Restrict on delete: a catalog entry in use must not vanish.
+model Supplement {
+  id   String         @id @db.Uuid
+  slug String         @unique @db.VarChar(48)
+  name String         @db.VarChar(80)
+  kind SupplementKind
+
+  defaultProteinPerServingG Int     @default(0) @map("default_protein_per_serving_g")
+  sortOrder                 Int     @default(0) @map("sort_order")
+  isActive                  Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  userSupplements UserSupplement[]
+
+  @@index([isActive, sortOrder])
+  @@map("supplements")
+}
+
+/// A user's supplement stack. Folded into their daily protein target.
+model UserSupplement {
+  id           String @id @db.Uuid
+  userId       String @map("user_id") @db.Uuid
+  supplementId String @map("supplement_id") @db.Uuid
+
+  /// Copied from the catalog at selection time, then editable — brands differ,
+  /// and a later catalog change must not silently rewrite someone's targets.
+  proteinPerServingG Int @map("protein_per_serving_g")
+  servingsPerDay     Int @map("servings_per_day")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supplement Supplement @relation(fields: [supplementId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, supplementId])
+  @@index([userId])
+  @@map("user_supplements")
+}
+
+/// Screen 6.
+model WorkoutPreference {
+  userId String @id @map("user_id") @db.Uuid
+
+  locations       WorkoutLocation[]
+  daysPerWeek     Int               @map("days_per_week")
+  sessionMinutes  Int               @map("session_minutes")
+  preferredTime   PreferredTime     @map("preferred_time")
+  experienceLevel ExperienceLevel   @map("experience_level")
+  /// Free text, e.g. "right knee, lower back".
+  injuries        String?           @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("workout_preferences")
 }

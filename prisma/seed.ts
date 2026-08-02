@@ -1,10 +1,14 @@
 import { PrismaClient } from '@prisma/client';
 import { uuidv7 } from 'uuidv7';
 
+import { SUPPLEMENT_CATALOG } from './seed-data/supplements.js';
+
 /**
- * Deterministic development seed. Safe to re-run: every write is an upsert
- * keyed on a natural key, so the same data converges rather than duplicating.
- * Never run against production.
+ * Deterministic seed. Safe to re-run: every write is an upsert keyed on a
+ * natural key, so the same data converges rather than duplicating.
+ *
+ * The supplement catalog is real reference data and is seeded everywhere.
+ * Sample users are development-only and never touch production.
  */
 const prisma = new PrismaClient();
 
@@ -13,11 +17,25 @@ const DEV_USERS = [
   { phone: '+919876543211', displayName: 'Priya', entitlement: 'PREMIUM' as const },
 ];
 
-async function main(): Promise<void> {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('Refusing to seed a production database.');
+async function seedSupplementCatalog(): Promise<void> {
+  for (const supplement of SUPPLEMENT_CATALOG) {
+    await prisma.supplement.upsert({
+      where: { slug: supplement.slug },
+      update: {
+        name: supplement.name,
+        kind: supplement.kind,
+        defaultProteinPerServingG: supplement.defaultProteinPerServingG,
+        sortOrder: supplement.sortOrder,
+        isActive: true,
+      },
+      create: { id: uuidv7(), ...supplement },
+    });
   }
 
+  console.log(`seeded ${String(SUPPLEMENT_CATALOG.length)} supplements`);
+}
+
+async function seedDevUsers(): Promise<void> {
   for (const user of DEV_USERS) {
     const record = await prisma.user.upsert({
       where: { phone: user.phone },
@@ -30,9 +48,19 @@ async function main(): Promise<void> {
         phoneVerifiedAt: new Date(),
       },
     });
-
     console.log(`seeded user ${record.displayName ?? record.id} (${record.entitlement})`);
   }
+}
+
+async function main(): Promise<void> {
+  await seedSupplementCatalog();
+
+  if (process.env.NODE_ENV === 'production') {
+    console.log('production: skipping sample users');
+    return;
+  }
+
+  await seedDevUsers();
 }
 
 main()

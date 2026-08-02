@@ -45,10 +45,46 @@ export async function disconnectRedis(): Promise<void> {
 
 // --- Typed cache-aside helpers ---------------------------------------------
 
+/**
+ * Tests use an in-process cache instead of Redis. Sharing a real Redis would
+ * make the suite non-hermetic — one run's cached reference data would outlive
+ * the database rows it describes and poison the next. The semantics are
+ * identical, so the cache-aside path is still exercised.
+ */
+interface MemoryEntry {
+  value: string;
+  expiresAtMs: number;
+}
+
+const memoryCache = new Map<string, MemoryEntry>();
+
+function usingMemoryCache(): boolean {
+  return loadEnv().NODE_ENV === 'test';
+}
+
+/** Test-only: drop everything, e.g. after truncating the database. */
+export function clearMemoryCache(): void {
+  memoryCache.clear();
+}
+
 /** Read a JSON value, returning undefined on a miss or unparseable payload. */
 export async function cacheGet<T>(key: string): Promise<T | undefined> {
-  const raw = await getRedis().get(key);
+  let raw: string | null;
+
+  if (usingMemoryCache()) {
+    const entry = memoryCache.get(key);
+    if (entry === undefined) return undefined;
+    if (entry.expiresAtMs <= Date.now()) {
+      memoryCache.delete(key);
+      return undefined;
+    }
+    raw = entry.value;
+  } else {
+    raw = await getRedis().get(key);
+  }
+
   if (raw === null) return undefined;
+
   try {
     return JSON.parse(raw) as T;
   } catch {
@@ -58,11 +94,24 @@ export async function cacheGet<T>(key: string): Promise<T | undefined> {
 }
 
 export async function cacheSet(key: string, value: unknown, ttlSeconds: number): Promise<void> {
-  await getRedis().set(key, JSON.stringify(value), 'EX', ttlSeconds);
+  const serialized = JSON.stringify(value);
+
+  if (usingMemoryCache()) {
+    memoryCache.set(key, { value: serialized, expiresAtMs: Date.now() + ttlSeconds * 1000 });
+    return;
+  }
+
+  await getRedis().set(key, serialized, 'EX', ttlSeconds);
 }
 
 export async function cacheDelete(...keys: string[]): Promise<void> {
   if (keys.length === 0) return;
+
+  if (usingMemoryCache()) {
+    for (const key of keys) memoryCache.delete(key);
+    return;
+  }
+
   await getRedis().del(...keys);
 }
 

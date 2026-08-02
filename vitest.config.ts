@@ -6,6 +6,10 @@ export default defineConfig({
     environment: 'node',
     include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
     setupFiles: ['test/helpers/setup-env.ts'],
+    // Integration tests make many sequential round trips to a managed Postgres
+    // in another region; the 5s default is not enough for a whole user journey.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     // Integration tests share one database; keep files serial to avoid
     // cross-test interference until per-test transactions are in place.
     pool: 'threads',

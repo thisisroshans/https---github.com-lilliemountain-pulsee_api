@@ -48,6 +48,14 @@ export default tseslint.config(
     },
   },
   {
+    // Enum bridging is generic by design: the caller names the target enum, and
+    // both sides have already validated the value against it.
+    files: ['src/modules/onboarding/onboarding.mappers.ts'],
+    rules: {
+      '@typescript-eslint/no-unnecessary-type-parameters': 'off',
+    },
+  },
+  {
     // Fastify identifies a plugin by its signature: `async (app) => {}` is the
     // encapsulated-plugin form, so these stay async even with nothing to await.
     files: ['src/**/*.routes.ts', 'src/shared/middleware/*.ts', 'src/app.ts'],

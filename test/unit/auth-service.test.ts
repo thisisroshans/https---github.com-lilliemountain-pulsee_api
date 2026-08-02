@@ -36,6 +36,7 @@ function buildUser(overrides: Partial<User> = {}): User {
     createdAt: new Date('2026-08-01T00:00:00.000Z'),
     updatedAt: new Date('2026-08-01T00:00:00.000Z'),
     deletedAt: null,
+    onboardingCompletedAt: null,
     ...overrides,
   };
 }

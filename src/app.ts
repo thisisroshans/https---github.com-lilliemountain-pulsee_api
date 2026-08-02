@@ -19,6 +19,7 @@ import { buildOpenApiServers } from './config/openapi-servers.js';
 import type { PhoneIdentityVerifier } from './integrations/identity/phone-identity-verifier.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { healthRoutes } from './modules/health/health.routes.js';
+import { onboardingRoutes } from './modules/onboarding/onboarding.routes.js';
 import { getRedis } from './shared/cache/redis.js';
 import { buildLoggerOptions } from './shared/logger/index.js';
 import { optionalUser } from './shared/middleware/auth.js';
@@ -103,6 +104,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
       tags: [
         { name: 'auth', description: 'Phone sign-in via Firebase, sessions, token rotation' },
+        {
+          name: 'onboarding',
+          description: 'Goals, body stats, health, food and training preferences (screens 2-6)',
+        },
         { name: 'health', description: 'Liveness and readiness probes' },
       ],
     },
@@ -119,6 +124,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     prefix: API_PREFIX,
     ...(options.identityVerifier ? { identityVerifier: options.identityVerifier } : {}),
   });
+  await app.register(onboardingRoutes, { prefix: API_PREFIX });
 
   return app;
 }
