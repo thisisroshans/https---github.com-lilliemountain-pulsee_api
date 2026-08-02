@@ -63,6 +63,9 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unnecessary-type-parameters': 'off',
       '@typescript-eslint/require-await': 'off',
+      // Asserting on a mocked method (`expect(redis.eval)`) is the normal
+      // vitest idiom, not an accidental unbound `this`.
+      '@typescript-eslint/unbound-method': 'off',
     },
   },
   {

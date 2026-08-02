@@ -20,6 +20,7 @@ import { getRedis } from './shared/cache/redis.js';
 import { buildLoggerOptions } from './shared/logger/index.js';
 import { optionalUser } from './shared/middleware/auth.js';
 import { registerErrorHandler } from './shared/middleware/error-handler.js';
+import { createResilientRateLimitStore } from './shared/middleware/rate-limit-store.js';
 import { generateRequestId, requestContext } from './shared/middleware/request-context.js';
 
 /**
@@ -60,13 +61,18 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Global floor. Sensitive routes (auth/otp, coach, uploads) tighten this
   // per-route via `config.rateLimit`.
-  // Tests run against the in-memory store so the suite needs no Redis.
+  //
+  // The store degrades to in-memory counters when Redis is unreachable rather
+  // than failing the request, so a cache outage cannot take the API down. Tests
+  // pass no Redis handle at all and run purely in memory.
   await app.register(rateLimit, {
     global: true,
     max: 300,
     timeWindow: '1 minute',
     keyGenerator: (request) => optionalUser(request)?.id ?? request.ip,
-    ...(env.NODE_ENV === 'test' ? {} : { redis: getRedis() }),
+    store: createResilientRateLimitStore({
+      redis: env.NODE_ENV === 'test' ? null : getRedis(),
+    }),
   });
 
   // --- API documentation ---------------------------------------------------
